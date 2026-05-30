@@ -1,0 +1,21 @@
+'use strict';
+
+const PAYMENT_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  PROCESSING: 'PROCESSING',
+  SUCCESS: 'SUCCESS',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+});
+
+const PAYMENT_METHODS = Object.freeze({
+  CREDIT_CARD: 'CREDIT_CARD',
+  DEBIT_CARD: 'DEBIT_CARD',
+  NET_BANKING: 'NET_BANKING',
+  UPI: 'UPI',
+  WALLET: 'WALLET',
+});
+
+const CURRENCIES = Object.freeze(['INR', 'USD', 'EUR', 'GBP']);
+
+module.exports = { PAYMENT_STATUS, PAYMENT_METHODS, CURRENCIES };
