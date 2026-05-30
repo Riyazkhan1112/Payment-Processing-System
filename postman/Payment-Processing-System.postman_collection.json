@@ -1,0 +1,552 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Payment Processing System",
+    "description": "Complete API collection for the Payment Processing System. Covers payment lifecycle, idempotency, retry logic, webhook callbacks, validation errors, and health checks.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "paymentId",
+      "value": "",
+      "type": "string",
+      "description": "Auto-populated after Create Payment request"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "order-unique-key-001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "health"]
+            },
+            "description": "Returns server uptime, timestamp, and circuit breaker status."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"status\": \"OK\",\n  \"uptime\": 12.345,\n  \"timestamp\": \"2026-05-30T10:00:00.000Z\",\n  \"circuitBreaker\": {\n    \"name\": \"payment-gateway\",\n    \"state\": \"CLOSED\",\n    \"failureCount\": 0,\n    \"lastFailureTime\": null\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Create Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('paymentId', json.data.id);",
+                  "    console.log('paymentId saved:', json.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1500,\n  \"currency\": \"INR\",\n  \"paymentMethod\": \"CREDIT_CARD\",\n  \"description\": \"Order #101 payment\",\n  \"metadata\": {\n    \"orderId\": \"ORD-101\",\n    \"customerId\": \"CUST-001\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            },
+            "description": "Initiates a new payment. Returns PENDING status immediately. Gateway processing happens asynchronously."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": \"uuid-xxxx-xxxx\",\n    \"status\": \"PENDING\",\n    \"amount\": 1500,\n    \"currency\": \"INR\",\n    \"paymentMethod\": \"CREDIT_CARD\",\n    \"description\": \"Order #101 payment\",\n    \"createdAt\": \"2026-05-30T10:00:00.000Z\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Payment — With Idempotency Key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('paymentId', json.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotency-key", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 2000,\n  \"currency\": \"USD\",\n  \"paymentMethod\": \"DEBIT_CARD\",\n  \"description\": \"Idempotent order payment\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            },
+            "description": "Send this request twice with the same `idempotency-key` header. The second response returns `idempotent: true` with the same payment ID — no duplicate payment is created."
+          },
+          "response": [
+            {
+              "name": "200 Idempotent Response",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": \"uuid-xxxx-xxxx\",\n    \"idempotent\": true,\n    \"status\": \"PENDING\",\n    \"amount\": 2000,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Payment — UPI",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 999,\n  \"currency\": \"INR\",\n  \"paymentMethod\": \"UPI\",\n  \"description\": \"UPI quick pay\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Payment — NET BANKING",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000,\n  \"currency\": \"INR\",\n  \"paymentMethod\": \"NET_BANKING\",\n  \"description\": \"Net banking transfer\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Payment — WALLET",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 250,\n  \"currency\": \"GBP\",\n  \"paymentMethod\": \"WALLET\",\n  \"description\": \"Wallet top-up\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Payments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            },
+            "description": "Returns all payments in the in-memory store."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"count\": 2,\n  \"data\": []\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Payment by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{paymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{paymentId}}"]
+            },
+            "description": "Fetches current state of a payment. Poll this after creation to track lifecycle: PENDING → PROCESSING → SUCCESS / FAILED."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": \"uuid-xxxx\",\n    \"status\": \"SUCCESS\",\n    \"gatewayTransactionId\": \"GTX-1234567\",\n    \"authCode\": \"A1B2C3\"\n  }\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"message\": \"Payment not found\",\n    \"code\": \"PAYMENT_NOT_FOUND\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retry Failed Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{paymentId}}/retry",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{paymentId}}", "retry"]
+            },
+            "description": "Manually retries a FAILED payment. Only allowed when status is FAILED. Resets to PENDING and triggers async processing again."
+          },
+          "response": [
+            {
+              "name": "200 OK — Reset to PENDING",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": \"uuid-xxxx\",\n    \"status\": \"PENDING\",\n    \"errorCode\": null,\n    \"errorMessage\": null\n  }\n}"
+            },
+            {
+              "name": "400 Bad Request — Not FAILED",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"message\": \"Only FAILED payments can be retried. Current status: PENDING\",\n    \"code\": \"INVALID_RETRY\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Webhook — SUCCESS callback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt-success-001\",\n  \"paymentId\": \"{{paymentId}}\",\n  \"gatewayTransactionId\": \"GTX-WEBHOOK-001\",\n  \"status\": \"SUCCESS\",\n  \"metadata\": {\n    \"source\": \"gateway-callback\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "Simulates gateway calling back with a SUCCESS status. Payment must be in PROCESSING state for this transition to be accepted."
+          },
+          "response": []
+        },
+        {
+          "name": "Webhook — FAILED callback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt-failed-002\",\n  \"paymentId\": \"{{paymentId}}\",\n  \"status\": \"FAILED\",\n  \"metadata\": {\n    \"reason\": \"INSUFFICIENT_FUNDS\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "Simulates a gateway failure callback."
+          },
+          "response": []
+        },
+        {
+          "name": "Webhook — PROCESSING callback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt-processing-003\",\n  \"paymentId\": \"{{paymentId}}\",\n  \"status\": \"PROCESSING\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "Transitions payment from PENDING to PROCESSING via webhook."
+          },
+          "response": []
+        },
+        {
+          "name": "Webhook — Duplicate Event (idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt-success-001\",\n  \"paymentId\": \"{{paymentId}}\",\n  \"status\": \"SUCCESS\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "Re-send the same eventId. System returns `duplicate: true` without re-processing — demonstrates idempotent webhook handling."
+          },
+          "response": [
+            {
+              "name": "200 Duplicate Ignored",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"duplicate\": true,\n    \"message\": \"Webhook already processed\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Webhook — Invalid State Transition",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt-conflict-004\",\n  \"paymentId\": \"{{paymentId}}\",\n  \"status\": \"SUCCESS\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "Attempts an invalid transition (e.g. PENDING → SUCCESS). System ignores it and returns `ignored: true`."
+          },
+          "response": [
+            {
+              "name": "200 Transition Ignored",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"ignored\": true,\n    \"message\": \"Transition from PENDING to SUCCESS is not allowed\",\n    \"currentStatus\": \"PENDING\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Validation Errors",
+      "item": [
+        {
+          "name": "Error — Missing Amount",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currency\": \"INR\",\n  \"paymentMethod\": \"CREDIT_CARD\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            },
+            "description": "Expects 400 — amount is required."
+          },
+          "response": []
+        },
+        {
+          "name": "Error — Negative Amount",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": -100,\n  \"currency\": \"INR\",\n  \"paymentMethod\": \"UPI\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            },
+            "description": "Expects 400 — amount must be positive."
+          },
+          "response": []
+        },
+        {
+          "name": "Error — Invalid Currency",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 500,\n  \"currency\": \"XYZ\",\n  \"paymentMethod\": \"UPI\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            },
+            "description": "Expects 400 — XYZ is not a supported currency."
+          },
+          "response": []
+        },
+        {
+          "name": "Error — Invalid Payment Method",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 500,\n  \"currency\": \"USD\",\n  \"paymentMethod\": \"BITCOIN\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"]
+            },
+            "description": "Expects 400 — BITCOIN is not a supported payment method."
+          },
+          "response": []
+        },
+        {
+          "name": "Error — Payment Not Found (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/non-existent-payment-id",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "non-existent-payment-id"]
+            },
+            "description": "Expects 404 — payment ID does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Error — Webhook Missing Fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt-incomplete\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks"]
+            },
+            "description": "Expects 400 — paymentId and status are required."
+          },
+          "response": []
+        },
+        {
+          "name": "Error — Unknown Route (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/unknown-route",
+              "host": ["{{baseUrl}}"],
+              "path": ["unknown-route"]
+            },
+            "description": "Expects 404 — route does not exist."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
